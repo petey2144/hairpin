@@ -1,1 +1,10 @@
 # Fityk script. Fityk version: 1.3.1
+# This will fit all data sets in the given csv file - an example file has also been uploaded
+
+@+ </home/david/Fitykloadfile_argon_oxygen_mix.csv:1:2..::
+
+@*: F += Lorentzian(min(y), argmin(y), ~5E6)
+@*: fit
+
+@*: print F[0].center >> '/home/david/Downloads/hairpin_processed_Center_argon_oxygen_mix.csv'
+@*: print F[0].FWHM >> '/home/david/Downloads/hairpin_processed_FWHM_argon_oxygen_mix.csv'
