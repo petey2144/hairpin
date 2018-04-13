@@ -149,17 +149,18 @@ S1.syn_cmd("stop")
 S1.syn_cmd("shutdown")
 S1.syn_close()
 
-Ref_Reflected_Voltage_Averaged = np.average(Raw_Reflected_Voltage, axis=1) #Reference reflected voltage to be used in steady state electron density determinatoin
+Ref_Reflected_Voltage_Averaged = np.average(Ref_Reflected_Voltage, axis=1) #Reference reflected voltage to be used in steady state electron density determinatoin
 
 #%%
 
 ####
 ## Determine resonant frequency and electron density in a steady state plasma
 ####
+S1.syn_close()
 freqstart = int(Vacuum_Resonant_Frequency) #starting frequency in MHz
 freqstop = freqstart+ss_plasma_freq_sweep_length #stopping frequency in MHz, may need to adjust this
 freqstep = 0.5 #step in frequency in MHz
-freqdelay = 0.1 #time delay for changing frequency in seconds
+freqdelay = 0.01 #time delay for changing frequency in seconds
 numsteps = int((freqstop-freqstart)/freqstep)
 frequency = np.linspace(freqstart,freqstop,numsteps)
 
@@ -211,6 +212,8 @@ for i in range(0,len(frequency)):
     Volts = (ADC_wave - yoff) * ymult  + yzero
         
     Raw_Reflected_Voltage[i] = Volts
+    while '1' in scope.ask("BUSY?"):
+        time.sleep(0.01)
     S1.syn_cmd("freqstep")
     
 S1.syn_cmd("stop")
