@@ -250,6 +250,9 @@ r2 = calc_r2(Y_array, lorentz(F_array, *solp)) #r_squared for fit
 solution = lorentz(F_array, *solp)
 vacuum_fwhm = 2*abs(solp[1])
 Q_Vacuum = Vacuum_Resonant_Frequency/vacuum_fwhm
+Vacuum_Resonant_Frequency_Fit = solp[2]
+Error_in_Fit_Vacuum_Resonant_Frequency = 100*abs(Vacuum_Resonant_Frequency-Vacuum_Resonant_Frequency_Fit)/Vacuum_Resonant_Frequency #percent difference
+
 plt.plot(F,Y,F,solution)
 plt.xlabel('Frquency [Hz]')
 plt.ylabel('Reflected Signal [V]')
@@ -359,8 +362,6 @@ for iter in range(1,num_iter):
 
 	time.sleep(time_per_iter_sec)
 
-#plt.plot(F,Y) #plot measured spectrum
-
 ###########
 ###This section will do the analysis/curve fitting
 ##########
@@ -401,7 +402,9 @@ r2 = calc_r2(Y_array, lorentz(F_array, *solp)) #r_squared for fit
 
 solution = lorentz(F_array, *solp)
 plasma_fwhm = 2*abs(solp[1])
-Q_Measured = Plasma_Resonant_Frequency/plasma_fwhm
+Plasma_Resonant_Frequency_Fit = solp[2]
+Q_Measured = Plasma_Resonant_Frequency_Fit/plasma_fwhm
+Error_in_Fit_Plasma_Resonant_Frequency = 100*(Plasma_Resonant_Frequency-Plasma_Resonant_Frequency_Fit)/Plasma_Resonant_Frequency
 plt.plot(F,Y,F,solution)
 plt.xlabel('Frquency [Hz]')
 plt.ylabel('Reflected Signal [V]')
@@ -409,3 +412,74 @@ plt.legend(('Raw Data', 'Lorentz Fit'))
 
 print("Plasma Resonant Frequency = " + str(Plasma_Resonant_Frequency/1E9) + " GHz")
 print("Q_Measured = " + str(Q_Measured))
+
+#Calculate electron density
+Uncorrected_Electron_Density = 1E10*(np.square(Plasma_Resonant_Frequency/1E9) - np.square(Vacuum_Resonant_Frequency/1E9))/0.8062 #calculates electron density in cm^-3
+
+#Calculate sheath correction and collision frequency
+#This assumes a sheath thickness of ~4 debye lengths (will change but is a measureable quantity)
+#Note that this uses the resonant frequency from the fit (difference between the fit and raw data is also calculated)
+
+Q_Plasma = (1/((1/Q_Measured) - (1/Q_Vacuum))) #this comes directly from transmission line theory
+
+N_collisionfreq = 1000 #mesh size for collision frequency constant sweep
+T_e_guess = 3.2 # electron temperature guess [eV] 
+
+a = 0.00022 # hairpin wire radius [m]
+w = 0.00185 # width between hairpin tines [m]
+Avagadro = 6.022E23 # [atoms/mol]
+neutral_gas_temp = 298.15 #neutral gas temperature used to calculate neutral gas density [K] (can use N2 rotational temps for this)
+R_gas = 62.36367 #gas constant [L*Torr/K*mol]
+convergence_criteria = 1E-5 #used in sheath correction loop
+c = 2.9979E8 #speed of light [m/s]
+epsilon_naught = 8.854E-12 #permittivity of free space [F/m]
+Pressure = 2 #[Torr] THIS WILL NEED TO BE CHANGED
+
+n_g = (Pressure/(R_gas*neutral_gas_temp))*Avagadro*(1/1000) #obtain neutral gas density, 1/1000 for converting from L to cm^-3 (THIS IS CURRENTLY NOT USED)
+
+collfreq = Pressure*np.linspace(1.0E8, 7E9, N_collisionfreq) #array of pressure normalized collision frequencies [Hz/Torr] * pressure[Torr] to create collision frequency array [Hz] to sweep over to find solution 
+
+for j in range(0,N_collisionfreq):
+    
+    collision_correction = 1/(1 + (collfreq/(2*np.pi*Vacuum_Resonant_Frequency_Fit))**2) #uses vacuum frequency here
+    Density_pressure_corrected = Density/collision_correction
+        
+    convergence = 1
+    Density_corrected = Density_pressure_corrected
+        
+    while convergence > convergence_criteria:
+            
+        lambda_ds = 7.43*np.sqrt(T_e_guess/Density_corrected) #debye length at sheath edge in [m]
+        sheath_width = 4.0*lambda_ds #this sheath assumes a 4 Debye length sheath
+        b = sheath_width + a 
+                
+        sheath_correction = 1 - ((Vacuum_Resonant_Frequency_Fit**2)/(Plasma_Resonant_Frequency_Fit**2))*((np.log((w-a)/(w-b)) + np.log(b/a))/np.log((w-a)/a)) #uses more copmlicated sheath definition, assumes sheath is completely devoid of electrons
+            
+        Density_updated = Density_pressure_corrected/sheath_correction
+        convergence = abs(Density_updated - Density_corrected)/Density_updated #update convergence criteria
+            
+        if convergence < convergence_criteria:
+            Final_Density[j] = Density_updated
+            Final_sheath_width = sheath_width
+            Final_b = b
+                
+        Density_corrected = Density_updated #updates the last iterations density
+
+    def f(x):
+        return ((((2*np.pi*Plasma_Resonant_Frequency_Fit)**2 + x**2)/((2*np.pi*9000*np.sqrt(Final_Density[j]))**2) -1)*(2*np.pi*Plasma_Resonant_Frequency_Fit/x) - Q_Plasma) #Solves for nu_effective from Q_Plasma
+        
+    measured_collision_freq[j] = optimize.newton(f, 1E9, tol=6E-6, maxiter=750) #finds zero crossing of function f
+        
+    difference[j] = 100*abs(measured_collision_freq[j] - collfreq[j])/collfreq[j]#find minimum of percent-difference of input collision freq to output
+        
+    true_collision_freq = collfreq[difference.argmin()] #selects the pressure normalized collision frequency that corresponds to minimum of %different
+
+pressure_normalized_measured_collision_freq = true_collision_freq/Pressure #pressure normalized collision freq [Hz/Torr]
+Pressure_and_Sheath_Corrected_Electron_Density = Final_Density[difference.argmin()] #corresponding measured electron density [cm^-3] using measured collision frequency
+
+print("Pressure and Sheath Corrected Electron Density = " + str(Pressure_and_Sheath_Corrected_Electron_Density) + '[cm^-3]')
+print("Effective Collision Frequency = " + str(true_collision_freq) + '[Hz]')
+
+########
+##This section constrains the possible EEDFs being measured using equation (8) in Peterson et al 2017 PSST
+########
