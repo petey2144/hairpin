@@ -25,17 +25,19 @@ import pandas as pd
 import sys, os
 sys.path.append('C:\\Users\\lab-admin\\.spyder-py3')
 from synth import synth
+from scipy.optimize import curve_fit
+from scipy import optimize
 
 ####
 ## Determine vacuum resonant frequency
 ####
 
-freqstart = 2720    #starting frequency in MHz
-freqstop = 2740 #stopping frequency in MHz
-freqstep = 0.1 #step in frequency in MHz
+freqstart = 2030   #starting frequency in MHz
+freqstop = 2040 #stopping frequency in MHz
+freqstep = .25 #step in frequency in MHz
 freqdelay = 0.5 #time delay for changing frequency in seconds
 numsteps = int((freqstop-freqstart)/freqstep)
-ss_plasma_freq_sweep_length = 310 #width of frequency sweep for steady state plasma
+ss_plasma_freq_sweep_length = 250 #width of frequency sweep for steady state plasma
 frequency = np.linspace(freqstart,freqstop,numsteps)
 
 S1= synth("AH01SZGB")
@@ -101,12 +103,25 @@ Vacuum_Resonant_Frequency = frequency[Reflected_Voltage_Averaged.argmin()] #dete
 pylab.plot(frequency, Reflected_Voltage_Averaged)
 pylab.show()
 
+#fit w/ Lorentz curve
+# initial parameter guesses
+# [height, HWHM, center, background]
+params = np.array([0.15, 1, Vacuum_Resonant_Frequency, 0.1], dtype=np.double)   #fit guess, hwhm in MHz
+solp, ier = fit(params, frequency, Reflected_Voltage_Averaged)
+Vacuum_Resonant_Frequency_Fit = solp[2]
+Vacuum_fwhm = 2*abs(solp[1])
+Vacuum_Fit = lorentz(frequency, *solp)
+
+Q_Vacuum = Vacuum_Resonant_Frequency_Fit/Vacuum_fwhm
+
+pylab.plot(frequency, Reflected_Voltage_Averaged, frequency, Vacuum_Fit)
+pylab.show()
+
 #Reference sweep (can also be a calibration sweep, but need to make into separate cell)
-ss_plasma_freq_sweep_length = 300 #width of sweep in MHz
-ref_sweep_offset = 20 #offset from vacuum resonance frequency in MHz
+ref_sweep_offset = 10 #offset from vacuum resonance frequency in MHz
 freqstart = ref_sweep_offset + int(Vacuum_Resonant_Frequency) #starting frequency in MHz
 freqstop = freqstart+ss_plasma_freq_sweep_length #stopping frequency in MHz, may need to adjust this
-freqstep = 0.5 #step in frequency in MHz
+#freqstep = 0.5 #step in frequency in MHz
 freqdelay = 0.5 #time delay for changing frequency in seconds
 numsteps = int((freqstop-freqstart)/freqstep)
 frequency = np.linspace(freqstart,freqstop,numsteps)
@@ -159,7 +174,7 @@ Ref_Reflected_Voltage_Averaged = np.average(Ref_Reflected_Voltage, axis=1) #Refe
 S1.syn_close()
 freqstart = int(Vacuum_Resonant_Frequency) #starting frequency in MHz
 freqstop = freqstart+ss_plasma_freq_sweep_length #stopping frequency in MHz, may need to adjust this
-freqstep = 0.5 #step in frequency in MHz
+#freqstep = 0.5 #step in frequency in MHz
 freqdelay = 0.01 #time delay for changing frequency in seconds
 numsteps = int((freqstop-freqstart)/freqstep)
 frequency = np.linspace(freqstart,freqstop,numsteps)
@@ -235,7 +250,7 @@ pylab.show()
 ####
 freqstart = int(Vacuum_Resonant_Frequency) #starting frequency in MHz
 freqstop = freqstart+ss_plasma_freq_sweep_length #stopping frequency in MHz, may need to adjust this
-freqstep = 0.5 #step in frequency in MHz
+#freqstep = 0.5 #step in frequency in MHz
 freqdelay = 0.5 #time delay for changing frequency in seconds
 numsteps = int((freqstop-freqstart)/freqstep)
 frequency = np.linspace(freqstart,freqstop,numsteps)
@@ -313,6 +328,49 @@ S1.syn_close()
 Time_Resolved_Resonant_Frequency = frequency[Corrected_Reflected_Voltage.argmin(axis=0)] #determines vacuum resonant frequency using minimum reflected voltage    
 Uncorrected_Electron_Density = 1E10*(np.square(Time_Resolved_Resonant_Frequency/1000) - np.square(Vacuum_Resonant_Frequency/1000))/0.81
 
+############
+#Fits data and finds Q in Plasma
+# Lorentzian fitting function
+def lorentz(x, *p):
+    I, gamma, x0, bg = p
+    return I * gamma**2 / ((x - x0)**2 + gamma**2) + bg
+
+def fit(p, x, y):
+    return curve_fit(lorentz, x, y, p0 = p)
+
+# initial parameter guesses
+# [height, HWHM, center, background]
+# Get the fitting parameters for the best lorentzian
+Plasma_Resonant_Frequency_Fit = np.zeros(len(Time))
+plasma_fwhm = np.zeros(len(Time))
+solution = np.zeros((len(frequency), len(Time)))
+
+for i in range(0,len(Time)):
+    params = np.array([0.15, 1, Time_Resolved_Resonant_Frequency[i], 0.0], dtype=np.double)   #fit guess, hwhm in MHz
+    solp, ier = fit(params, frequency, Corrected_Reflected_Voltage[:,i])
+    Plasma_Resonant_Frequency_Fit[i] = solp[2]
+    plasma_fwhm[i] = 2*abs(solp[1])
+    solution[:,i] = lorentz(frequency, *solp)
+
+# error stuff
+# coefficient of determination
+def calc_r2(y, f):
+    avg_y = y.mean()
+    sstot = ((y - avg_y)**2).sum()
+    ssres = ((y - f)**2).sum()
+    return 1 - ssres/sstot
+
+# calculate the errors
+#r2 = calc_r2(frequency, lorentz(frequency, *solp)) #r_squared for fit
+Uncorrected_Electron_Density_Fit = 1E10*(np.square(Plasma_Resonant_Frequency_Fit/1000) - np.square(Vacuum_Resonant_Frequency/1000))/0.81
+
+Q_Measured = Plasma_Resonant_Frequency_Fit/plasma_fwhm
+Error_in_Fit_Plasma_Resonant_Frequency = 100*(Time_Resolved_Resonant_Frequency-Plasma_Resonant_Frequency_Fit)/Time_Resolved_Resonant_Frequency
+
+Q_Plasma = (1/((1/Q_Measured) - (1/Q_Vacuum)))
+
+#############
+
 Time_micro = 1E6*Time
 pylab.plot(Time_micro, Uncorrected_Electron_Density)
 #pylab.axis([0, 200, 0, 1.3E10])
@@ -321,10 +379,19 @@ pylab.ylabel('Electron Density [cm$^{-3}$]')
 #xticks(np.linspace(Time_micro[0],max(Time_micro),5))
 pylab.show()
 
+Time_micro = 1E6*Time
+pylab.plot(Time_micro, Uncorrected_Electron_Density_Fit)
+#pylab.axis([0, 200, 0, 1.3E10])
+pylab.xlabel('Time [${\mu}s$ ]')
+pylab.ylabel('Electron Density using Fit [cm$^{-3}$]')
+#xticks(np.linspace(Time_micro[0],max(Time_micro),5))
+pylab.show()
+
 data_out = np.transpose([Time_micro, Uncorrected_Electron_Density])
-np.savetxt("C:\\Users\\lab-admin\\Documents\\Hairpin Automated DAQ Data\\Oxygen_4-10-2018\\Oxygen_Sweep_10070us.csv", data_out, delimiter=",")
+np.savetxt("C:\\Users\\lab-admin\\Documents\\Hairpin Automated DAQ Data\\Oxygen_4-10-2018\\Ar Si -75V.csv", data_out, delimiter=",")
 #%%
 
 ####
 ## Forward and Reflected Power and Trigger Voltage Data Acquisition
 ####
+
