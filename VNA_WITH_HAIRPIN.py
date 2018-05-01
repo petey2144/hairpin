@@ -47,12 +47,12 @@ except:
 # Allows time.sleep() command
 import time
 import numpy as np
-import peakutils
+import pandas as pd
+import pylab
+import scipy
 import matplotlib.pyplot as plt
-import lmfit
-from lmfit.models import LorentzianModel
-from lmfit import Model, minimize, Parameters, report_fit, Minimizer
 from scipy.optimize import curve_fit
+from scipy.interpolate import UnivariateSpline
 
 ###########################
 # Prompt for user's input
