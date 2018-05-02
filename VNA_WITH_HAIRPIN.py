@@ -53,6 +53,7 @@ import scipy
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 from scipy.interpolate import UnivariateSpline
+from scipy import optimize
 
 ###########################
 # Prompt for user's input
@@ -268,8 +269,8 @@ print("Q_Vacuum = " + str(Q_Vacuum))
 Y_array_Modified_For_Interpolation = Y_array
 F_array_Modified_For_Interpolation = F_array
 
-Y_array_Modified_For_Interpolation = np.delete(Y_array, range(np.abs(F_array-(Vacuum_Resonant_Frequency_Fit-5*vacuum_fwhm)).argmin(), np.abs(F_array-(Vacuum_Resonant_Frequency_Fit+4*vacuum_fwhm)).argmin()))
-F_array_Modified_For_Interpolation = np.delete(F_array, range(np.abs(F_array-(Vacuum_Resonant_Frequency_Fit-5*vacuum_fwhm)).argmin(), np.abs(F_array-(Vacuum_Resonant_Frequency_Fit+4*vacuum_fwhm)).argmin()))
+Y_array_Modified_For_Interpolation = np.delete(Y_array, range(np.abs(F_array-(Vacuum_Resonant_Frequency_Fit-4*vacuum_fwhm)).argmin(), np.abs(F_array-(Vacuum_Resonant_Frequency_Fit+4*vacuum_fwhm)).argmin()))
+F_array_Modified_For_Interpolation = np.delete(F_array, range(np.abs(F_array-(Vacuum_Resonant_Frequency_Fit-4*vacuum_fwhm)).argmin(), np.abs(F_array-(Vacuum_Resonant_Frequency_Fit+4*vacuum_fwhm)).argmin()))
 
 #for i in range(np.abs(F_array-(Vacuum_Resonant_Frequency_Fit-4*vacuum_fwhm)).argmin(), np.abs(F_array-(Vacuum_Resonant_Frequency_Fit+4*vacuum_fwhm)).argmin()):
 #
@@ -278,7 +279,7 @@ F_array_Modified_For_Interpolation = np.delete(F_array, range(np.abs(F_array-(Va
 #Now spline to fit data    
 
 Y_interpolated = UnivariateSpline(F_array_Modified_For_Interpolation, Y_array_Modified_For_Interpolation)
-Y_interpolated.set_smoothing_factor(0.01) #THIS MAY HAVE TO CHANGE
+Y_interpolated.set_smoothing_factor(0.06) #THIS MAY HAVE TO CHANGE
 
 pylab.plot(F_array, Y_array, F_array, Y_interpolated(F_array))
 plt.xlabel('Frquency [Hz]')
@@ -314,10 +315,8 @@ plt.show()
 #is taken and the minimum of that is then used to remeasure the resonance over a narrower range, giving better results.
 #The benefit of this is that it does not need to  be done manually.
 
-f1_hz = Vacuum_Resonant_Frequency + 3E7
-
-#fstop=600e6 or span, as per above, in Hz
-f2_hz = Vacuum_Resonant_Frequency + 3E8
+f1_hz = float(input('\nPlease enter start/center frequency (Hz):'))
+f2_hz = float(input('\nPlease enter stop/span frequency (Hz):'))
 
 #Instantiate COM client
 try:
@@ -481,14 +480,18 @@ epsilon_naught = 8.854E-12 #permittivity of free space [F/m]
 
 Pressure = float(input('\nPlease enter the pressure[Torr]:')) #[Torr]
 
-n_g = (Pressure/(R_gas*neutral_gas_temp))*Avagadro*(1/1000) #obtain neutral gas density, 1/1000 for converting from L to cm^-3 (THIS IS CURRENTLY NOT USED)
+n_g = (Pressure/(R_gas*neutral_gas_temp))*Avagadro*(1/1000) #obtain neutral gas density, 1/1000 for converting from L to cm^-3
 
 collfreq = Pressure*np.linspace(1.0E8, 7E9, N_collisionfreq) #array of pressure normalized collision frequencies [Hz/Torr] * pressure[Torr] to create collision frequency array [Hz] to sweep over to find solution 
 
+Final_Density = np.zeros(N_collisionfreq)
+measured_collision_freq = np.zeros(N_collisionfreq)
+difference = np.zeros(N_collisionfreq)
+
 for j in range(0,N_collisionfreq):
     
-    collision_correction = 1/(1 + (collfreq/(2*np.pi*Vacuum_Resonant_Frequency_Fit))**2) #uses vacuum frequency here
-    Density_pressure_corrected = Density/collision_correction
+    collision_correction = 1/(1 + (collfreq[j]/(2*np.pi*Vacuum_Resonant_Frequency_Fit))**2) #uses vacuum frequency here
+    Density_pressure_corrected = Uncorrected_Electron_Density/collision_correction
         
     convergence = 1
     Density_corrected = Density_pressure_corrected
@@ -496,7 +499,7 @@ for j in range(0,N_collisionfreq):
     while convergence > convergence_criteria:
             
         lambda_ds = 7.43*np.sqrt(T_e_guess/Density_corrected) #debye length at sheath edge in [m]
-        sheath_width = 2.0*lambda_ds #this sheath assumes a 2 Debye length sheath (NEEDS TO BE MEASURED)
+        sheath_width = 1.5*lambda_ds #this sheath assumes a 2 Debye length sheath (NEEDS TO BE MEASURED)
         b = sheath_width + a 
                 
         sheath_correction = 1 - ((Vacuum_Resonant_Frequency_Fit**2)/(Plasma_Resonant_Frequency_Fit**2))*((np.log((w-a)/(w-b)) + np.log(b/a))/np.log((w-a)/a)) #uses more copmlicated sheath definition, assumes sheath is completely devoid of electrons
@@ -522,8 +525,9 @@ for j in range(0,N_collisionfreq):
 
 pressure_normalized_measured_collision_freq = true_collision_freq/Pressure #pressure normalized collision freq [Hz/Torr]
 Pressure_and_Sheath_Corrected_Electron_Density = Final_Density[difference.argmin()] #corresponding measured electron density [cm^-3] using measured collision frequency
+Pressure_and_Sheath_Corrected_Electron_Density_meters_cubed = Pressure_and_Sheath_Corrected_Electron_Density*1E6 #convert to [m^-3] for later use
 
-print("Pressure and Sheath Corrected Electron Density = " + str(Pressure_and_Sheath_Corrected_Electron_Density) + '[cm^-3]')
+print("Pressure and Sheath Corrected Electron Density = " + str(Pressure_and_Sheath_Corrected_Electron_Density/1E10) + 'E10 [cm^-3]')
 print("Effective Collision Frequency = " + str(true_collision_freq) + '[Hz]')
 
 
@@ -571,51 +575,83 @@ m_e = 9.109E-31 #kg
 e = 1.602E-19 #coulombs
 omega = 2*np.pi*Plasma_Resonant_Frequency_Fit #angular frequency
 v = np.sqrt(2*e*energy/m_e) #electron velocity m/s
-nu_energy = n_g*v*sigma_c_energy #energy differential collision cross section for momentum transfer
+n_g_meters_cubed = n_g*1E6 #n_g in [m^-3]
+nu_energy = n_g_meters_cubed*v*sigma_c_energy #energy differential collision cross section for momentum transfer
 T_e_sweep = np.linspace(0.1, 15, 1000)#0.1-15eV; 1000 steps
 
 #MAXWELLIAN
-f_maxwellian = 2*(np.pi**(-1/2))*T_e_sweep**(-3/2)*np.exp(-energy/T_e_sweep)
-normalization_term = np.trapz(np.power(energy, 1/2) * f_maxwellian, energy) #Normalize f(energy) such that integral ( energy^1/2 * f(energy)) = 1 = T_eff
-f_maxwellian = f_maxwellian/normalization_term #normalized maxwellian EEDF
-f_prime_maxwellian = np.gradient(f_maxwellian)/np.gradient(energy) #derivative of EEDF using gradient method
+f_maxwellian = np.zeros((len(T_e_sweep), len(energy)))
+normalization_term = np.zeros((len(T_e_sweep), len(energy)))
+f_prime_maxwellian = np.zeros((len(T_e_sweep), len(energy)))
+
+for i in range(0, len(T_e_sweep)):
+    f_maxwellian[i] = 2*(np.pi**(-1/2))*T_e_sweep[i]**(-3/2)*np.exp(-energy/T_e_sweep[i])
+    normalization_term[i] = np.trapz(np.power(energy, 1/2) * f_maxwellian[i], energy) #Normalize f(energy) such that integral ( energy^1/2 * f(energy)) = 1 = T_eff
+    f_maxwellian[i] = f_maxwellian[i]/normalization_term[i] #normalized maxwellian EEDF
+    f_prime_maxwellian[i] = np.gradient(f_maxwellian[i])/np.gradient(energy) #derivative of EEDF using gradient method
 
 #BI-MAXWELLIAN
+f_bimaxwellian = np.zeros((len(T_e_sweep), len(energy)))
+normalization_term_bimaxwellian = np.zeros((len(T_e_sweep), len(energy)))
+f_prime_bimaxwellian = np.zeros((len(T_e_sweep), len(energy)))
+A = np.zeros((len(T_e_sweep), len(energy)))
+
 beta = 1/9 # n_2/n_1; ratio of hot/cold electron populations
 T_1 = 0.5 #eV; lower temperature, kept fixed
 T_2_bimaxwellian_sweep = T_e_sweep
-A = 1/(((np.pi**1/2)/2)*((1-beta)*T_1**(3/2) + beta*T_2_bimaxwellian_sweep**(3/2)))
-f_bimaxwellian = A*((1-beta)*np.exp(-energy/T_1) + beta*np.exp(-energy/T_2_bimaxwellian_sweep))
-normalization_term = np.trapz(np.power(energy, 1/2) * f_bimaxwellian, energy) #normalize T_eff = integral ( energy^3/2 * f(energy)) = 1
-f_bimaxwellian = f_bimaxwellian/normalization_term
-f_prime_bimaxwellian = np.gradient(f_bimaxwellian)/np.gradient(energy) #derivative of EEDF using gradient method
+
+for i in range(0, len(T_e_sweep)):
+    A = 1/(((np.pi**1/2)/2)*((1-beta)*T_1**(3/2) + beta*T_2_bimaxwellian_sweep[i]**(3/2)))
+    f_bimaxwellian[i] = A*((1-beta)*np.exp(-energy/T_1) + beta*np.exp(-energy/T_2_bimaxwellian_sweep[i]))
+    normalization_term_bimaxwellian[i] = np.trapz(np.power(energy, 1/2) * f_bimaxwellian[i], energy) #normalize T_eff = integral ( energy^3/2 * f(energy)) = 1
+    f_bimaxwellian[i] = f_bimaxwellian[i]/normalization_term_bimaxwellian[i]
+    f_prime_bimaxwellian[i] = np.gradient(f_bimaxwellian[i])/np.gradient(energy) #derivative of EEDF using gradient method
 
 #DRUYVESTEYN
-#NEED TO NORMALIZE EEDF
-f_druyvesteyn = (0.5648*n_e*np.sqrt(energy)/np.power(T_e_sweep, 3/2))*np.exp(-0.243*np.power(energy/T_e_sweep, 2))
-normalization_term = np.trapz(np.power(energy, 1/2) * f_druyvesteyn, energy) #normalize T_eff = integral ( energy^3/2 * f(energy)) = 1
-f_druyvesteyn = f_druyvesteyn/normalization_term
-f_prime_druyvesteyn = np.gradient(f_druyvesteyn)/np.gradient(energy) #derivative of EEDF using gradient method
+f_druyvesteyn = np.zeros((len(T_e_sweep), len(energy)))
+normalization_term_druyvesteyn = np.zeros((len(T_e_sweep), len(energy)))
+f_prime_druyvesteyn = np.zeros((len(T_e_sweep), len(energy)))
+
+for i in range(0, len(T_e_sweep)):
+    f_druyvesteyn[i] = (0.5648*Pressure_and_Sheath_Corrected_Electron_Density_meters_cubed*np.sqrt(energy)/np.power(T_e_sweep[i], 3/2))*np.exp(-0.243*np.power(energy/T_e_sweep[i], 2))
+    normalization_term[i] = np.trapz(np.power(energy, 1/2) * f_druyvesteyn[i], energy) #normalize T_eff = integral ( energy^3/2 * f(energy)) = 1
+    f_druyvesteyn[i] = f_druyvesteyn[i]/normalization_term[i]
+    f_prime_druyvesteyn[i] = np.gradient(f_druyvesteyn[i])/np.gradient(energy) #derivative of EEDF using gradient method
 
 #CONDUCTIVITY
-integrand_maxwellian = ((np.power(energy, 3/2)) * f_prime_maxwellian)/(nu_energy_sweep + 1j*omega)
-sigma_e_maxwellian = -(2*Pressure_and_Sheath_Corrected_Electron_Density*e**2/(3*m_e))*np.trapz(integrand_maxwellian, energy)
+integrand_maxwellian = np.zeros((len(T_e_sweep), len(energy)))
+sigma_e_maxwellian = np.zeros(len(T_e_sweep))
+integrand_bimaxwellian = np.zeros((len(T_e_sweep), len(energy)))
+sigma_e_bimaxwellian = np.zeros(len(T_e_sweep))
+integrand_druyvesteyn = np.zeros((len(T_e_sweep), len(energy)))
+sigma_e_druyvesteyn = np.zeros(len(T_e_sweep))
+nu_eff_maxwellian = np.zeros(len(T_e_sweep))
+omega_eff_maxwellian = np.zeros(len(T_e_sweep))
+nu_eff_bimaxwellian = np.zeros(len(T_e_sweep))
+omega_eff_bimaxwellian = np.zeros(len(T_e_sweep))
+nu_eff_druyvesteyn = np.zeros(len(T_e_sweep))
+omega_eff_druyvesteyn = np.zeros(len(T_e_sweep))
 
-integrand = ((np.power(energy, 3/2)) * f_prime_bimaxwellian)/(nu_energy_sweep + 1j*omega)
-sigma_e_bimaxwellian = -(2*Pressure_and_Sheath_Corrected_Electron_Density*e**2/(3*m_e))*np.trapz(integrand, energy)
+for i in range(0, len(T_e_sweep)):
+    #CONDUCTIVITY
+    integrand_maxwellian[i] = ((np.power(energy, 3/2)) * f_prime_maxwellian[i])/(nu_energy + 1j*omega)
+    sigma_e_maxwellian[i] = -(2*Pressure_and_Sheath_Corrected_Electron_Density_meters_cubed*e**2/(3*m_e))*np.trapz(integrand_maxwellian[i], energy)
 
-integrand = ((np.power(energy, 3/2)) * f_prime_druyvesteyn)/(nu_energy_sweep + 1j*omega)
-sigma_e_druyvesteyn = -(2*Pressure_and_Sheath_Corrected_Electron_Density*e**2/(3*m_e))*np.trapz(integrand, energy)
+    integrand_bimaxwellian[i] = ((np.power(energy, 3/2)) * f_prime_bimaxwellian[i])/(nu_energy + 1j*omega)
+    sigma_e_bimaxwellian[i] = -(2*Pressure_and_Sheath_Corrected_Electron_Density_meters_cubed*e**2/(3*m_e))*np.trapz(integrand_bimaxwellian[i], energy)
 
-#Effective collision frequency and angular frequency
-nu_eff_maxwellian = np.real(Pressure_and_Sheath_Corrected_Electron_Density*(e**2)/(sigma_e_maxwellian*m_e))
-omega_eff_maxwellian = np.imag(Pressure_and_Sheath_Corrected_Electron_Density*(e**2)/(sigma_e*m_e))
+    integrand_druyvesteyn[i] = ((np.power(energy, 3/2)) * f_prime_druyvesteyn[i])/(nu_energy + 1j*omega)
+    sigma_e_druyvesteyn[i] = -(2*Pressure_and_Sheath_Corrected_Electron_Density_meters_cubed*e**2/(3*m_e))*np.trapz(integrand_druyvesteyn[i], energy)
 
-nu_eff_bimaxwellian = np.real(Pressure_and_Sheath_Corrected_Electron_Density*(e**2)/(sigma_e_bimaxwellian*m_e))
-omega_eff_bimaxwellian = np.imag(Pressure_and_Sheath_Corrected_Electron_Density*(e**2)/(sigma_e_bimaxwellian*m_e))
+    #Effective collision frequency and angular frequency
+    nu_eff_maxwellian[i] = np.real(Pressure_and_Sheath_Corrected_Electron_Density_meters_cubed*(e**2)/(sigma_e_maxwellian[i]*m_e))
+    omega_eff_maxwellian[i] = np.imag(Pressure_and_Sheath_Corrected_Electron_Density_meters_cubed*(e**2)/(sigma_e_maxwellian[i]*m_e))
 
-nu_eff_druyvesteyn = np.real(Pressure_and_Sheath_Corrected_Electron_Density*(e**2)/(sigma_e_druyvesteyn*m_e))
-omega_eff_druyvesteyn = np.imag(Pressure_and_Sheath_Corrected_Electron_Density*(e**2)/(sigma_e_druyvesteyn*m_e))
+    nu_eff_bimaxwellian[i] = np.real(Pressure_and_Sheath_Corrected_Electron_Density_meters_cubed*(e**2)/(sigma_e_bimaxwellian[i]*m_e))
+    omega_eff_bimaxwellian[i] = np.imag(Pressure_and_Sheath_Corrected_Electron_Density_meters_cubed*(e**2)/(sigma_e_bimaxwellian[i]*m_e))
+
+    nu_eff_druyvesteyn[i] = np.real(Pressure_and_Sheath_Corrected_Electron_Density_meters_cubed*(e**2)/(sigma_e_druyvesteyn[i]*m_e))
+    omega_eff_druyvesteyn[i] = np.imag(Pressure_and_Sheath_Corrected_Electron_Density_meters_cubed*(e**2)/(sigma_e_druyvesteyn[i]*m_e))
 
 #Find minimum of (nu_eff_EEDF_calculated - nu_eff_measured) and set T_e_EEDF at that value
 T_e_maxwellian = T_e_sweep[abs(nu_eff_maxwellian - true_collision_freq).argmin()]
