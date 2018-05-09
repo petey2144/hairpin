@@ -269,8 +269,10 @@ print("Q_Vacuum = " + str(Q_Vacuum))
 Y_array_Modified_For_Interpolation = Y_array
 F_array_Modified_For_Interpolation = F_array
 
-Y_array_Modified_For_Interpolation = np.delete(Y_array, range(np.abs(F_array-(Vacuum_Resonant_Frequency_Fit-4*vacuum_fwhm)).argmin(), np.abs(F_array-(Vacuum_Resonant_Frequency_Fit+4*vacuum_fwhm)).argmin()))
-F_array_Modified_For_Interpolation = np.delete(F_array, range(np.abs(F_array-(Vacuum_Resonant_Frequency_Fit-4*vacuum_fwhm)).argmin(), np.abs(F_array-(Vacuum_Resonant_Frequency_Fit+4*vacuum_fwhm)).argmin()))
+Interpolation_Factor = 2.6 #FWHM*Interpolation_factor gives the range over which data is deleted
+
+Y_array_Modified_For_Interpolation = np.delete(Y_array, range(np.abs(F_array-(Vacuum_Resonant_Frequency_Fit-Interpolation_Factor*vacuum_fwhm)).argmin(), np.abs(F_array-(Vacuum_Resonant_Frequency_Fit+Interpolation_Factor*vacuum_fwhm)).argmin()))
+F_array_Modified_For_Interpolation = np.delete(F_array, range(np.abs(F_array-(Vacuum_Resonant_Frequency_Fit-Interpolation_Factor*vacuum_fwhm)).argmin(), np.abs(F_array-(Vacuum_Resonant_Frequency_Fit+Interpolation_Factor*vacuum_fwhm)).argmin()))
 
 #for i in range(np.abs(F_array-(Vacuum_Resonant_Frequency_Fit-4*vacuum_fwhm)).argmin(), np.abs(F_array-(Vacuum_Resonant_Frequency_Fit+4*vacuum_fwhm)).argmin()):
 #
@@ -279,7 +281,7 @@ F_array_Modified_For_Interpolation = np.delete(F_array, range(np.abs(F_array-(Va
 #Now spline to fit data    
 
 Y_interpolated = UnivariateSpline(F_array_Modified_For_Interpolation, Y_array_Modified_For_Interpolation)
-Y_interpolated.set_smoothing_factor(0.06) #THIS MAY HAVE TO CHANGE
+Y_interpolated.set_smoothing_factor(0.02) #THIS MAY HAVE TO CHANGE
 
 pylab.plot(F_array, Y_array, F_array, Y_interpolated(F_array))
 plt.xlabel('Frquency [Hz]')
@@ -459,18 +461,59 @@ print("Q_Measured = " + str(Q_Measured))
 
 #Calculate electron density
 Uncorrected_Electron_Density = 1E10*(np.square(Plasma_Resonant_Frequency/1E9) - np.square(Vacuum_Resonant_Frequency/1E9))/0.8062 #calculates electron density in cm^-3
+Uncorrected_Electron_Density_Fit = 1E10*(np.square(Plasma_Resonant_Frequency_Fit/1E9) - np.square(Vacuum_Resonant_Frequency/1E9))/0.8062 #calculates electron density in cm^-3
+
+Y_array_Modified_For_Interpolation = Y_array
+F_array_Modified_For_Interpolation = F_array
+
+Y_array_Modified_For_Interpolation = np.delete(Y_array, range(np.abs(F_array-(Plasma_Resonant_Frequency_Fit-Interpolation_Factor*plasma_fwhm)).argmin(), np.abs(F_array-(Plasma_Resonant_Frequency_Fit+Interpolation_Factor*plasma_fwhm)).argmin()))
+F_array_Modified_For_Interpolation = np.delete(F_array, range(np.abs(F_array-(Plasma_Resonant_Frequency_Fit-Interpolation_Factor*plasma_fwhm)).argmin(), np.abs(F_array-(Plasma_Resonant_Frequency_Fit+Interpolation_Factor*plasma_fwhm)).argmin()))
+    
+#Now spline to fit data    
+
+Y_interpolated = UnivariateSpline(F_array_Modified_For_Interpolation, Y_array_Modified_For_Interpolation)
+Y_interpolated.set_smoothing_factor(0.04) #THIS MAY HAVE TO CHANGE
+
+pylab.plot(F_array, Y_array, F_array, Y_interpolated(F_array))
+plt.xlabel('Frquency [Hz]')
+plt.ylabel('Reflected Signal [V]')
+plt.legend(('Raw Data', 'Spline with no resonance'))
+plt.show()
+
+#Calibrated Reflected Voltage
+Y_Calibrated_Plasma = Y_array - Y_interpolated(F_array)
+
+#Fit calibrated curve
+
+solp_cal, ier_cal = fit(params, F_array, Y_Calibrated_Plasma)
+
+solution_cal = lorentz(F_array, *solp_cal)
+plasma_fwhm_cal = 2*abs(solp_cal[1])
+Plasma_Resonant_Frequency_Fit_cal = solp_cal[2]
+Q_Measured_cal = Plasma_Resonant_Frequency_Fit_cal/plasma_fwhm_cal
+
+# calculate the errors
+r2_plasma_cal = calc_r2(Y_Calibrated_Plasma, lorentz(F_array, *solp_cal)) #r_squared for fit
+
+plt.plot(F_array,Y_Calibrated_Plasma,F,solution_cal)
+plt.xlabel('Frquency [Hz]')
+plt.ylabel('Reflected Signal [V]')
+plt.legend(('Calibrated Raw Data', 'Lorentz Fit'))
+plt.show()
 
 #Calculate sheath correction and collision frequency
 #This assumes a sheath thickness of ~4 debye lengths (will change but is a measureable quantity)
 #Note that this uses the resonant frequency from the fit (difference between the fit and raw data is also calculated)
 
-Q_Plasma = (1/((1/Q_Measured) - (1/Q_Vacuum))) #this comes directly from transmission line theory
+Q_Plasma = (1/((1/Q_Measured) - (1/Q_Vacuum_cal))) #this comes directly from transmission line theory
+Q_Plasma_cal = (1/((1/Q_Measured_cal) - (1/Q_Vacuum_cal))) #this comes directly from transmission line theory
+
 
 N_collisionfreq = 1000 #mesh size for collision frequency constant sweep
-T_e_guess = 3.2 # electron temperature guess [eV] 
+T_e_guess = 0.65 # electron temperature guess [eV] 
 
-a = 0.00022 # hairpin wire radius [m]
-w = 0.00185 # width between hairpin tines [m]
+a = 0.000325 # hairpin wire radius [m]
+w = 0.0024 # width between hairpin tines [m]
 Avagadro = 6.022E23 # [atoms/mol]
 neutral_gas_temp = 298.15 #neutral gas temperature used to calculate neutral gas density [K] (can use N2 rotational temps for this)
 R_gas = 62.36367 #gas constant [L*Torr/K*mol]
@@ -482,7 +525,7 @@ Pressure = float(input('\nPlease enter the pressure[Torr]:')) #[Torr]
 
 n_g = (Pressure/(R_gas*neutral_gas_temp))*Avagadro*(1/1000) #obtain neutral gas density, 1/1000 for converting from L to cm^-3
 
-collfreq = Pressure*np.linspace(1.0E8, 7E9, N_collisionfreq) #array of pressure normalized collision frequencies [Hz/Torr] * pressure[Torr] to create collision frequency array [Hz] to sweep over to find solution 
+collfreq = Pressure*np.linspace(1.0E8, 1E10, N_collisionfreq) #array of pressure normalized collision frequencies [Hz/Torr] * pressure[Torr] to create collision frequency array [Hz] to sweep over to find solution 
 
 Final_Density = np.zeros(N_collisionfreq)
 measured_collision_freq = np.zeros(N_collisionfreq)
@@ -499,7 +542,7 @@ for j in range(0,N_collisionfreq):
     while convergence > convergence_criteria:
             
         lambda_ds = 7.43*np.sqrt(T_e_guess/Density_corrected) #debye length at sheath edge in [m]
-        sheath_width = 1.5*lambda_ds #this sheath assumes a 2 Debye length sheath (NEEDS TO BE MEASURED)
+        sheath_width = 0.17*lambda_ds #this sheath assumes a 2 Debye length sheath (NEEDS TO BE MEASURED)
         b = sheath_width + a 
                 
         sheath_correction = 1 - ((Vacuum_Resonant_Frequency_Fit**2)/(Plasma_Resonant_Frequency_Fit**2))*((np.log((w-a)/(w-b)) + np.log(b/a))/np.log((w-a)/a)) #uses more copmlicated sheath definition, assumes sheath is completely devoid of electrons
@@ -515,7 +558,7 @@ for j in range(0,N_collisionfreq):
         Density_corrected = Density_updated #updates the last iterations density
 
     def f(x):
-        return ((((2*np.pi*Plasma_Resonant_Frequency_Fit)**2 + x**2)/((2*np.pi*9000*np.sqrt(Final_Density[j]))**2) -1)*(2*np.pi*Plasma_Resonant_Frequency_Fit/x) - Q_Plasma) #Solves for nu_effective from Q_Plasma
+        return ((((2*np.pi*Plasma_Resonant_Frequency_Fit)**2 + x**2)/((2*np.pi*9000*np.sqrt(Final_Density[j]))**2) -1)*(2*np.pi*Plasma_Resonant_Frequency_Fit/x) - Q_Plasma_cal) #Solves for nu_effective from Q_Plasma
         
     measured_collision_freq[j] = optimize.newton(f, 1E9, tol=6E-6, maxiter=750) #finds zero crossing of function f
         
@@ -528,7 +571,7 @@ Pressure_and_Sheath_Corrected_Electron_Density = Final_Density[difference.argmin
 Pressure_and_Sheath_Corrected_Electron_Density_meters_cubed = Pressure_and_Sheath_Corrected_Electron_Density*1E6 #convert to [m^-3] for later use
 
 print("Pressure and Sheath Corrected Electron Density = " + str(Pressure_and_Sheath_Corrected_Electron_Density/1E10) + 'E10 [cm^-3]')
-print("Effective Collision Frequency = " + str(true_collision_freq) + '[Hz]')
+print("Effective Collision Frequency = " + str(true_collision_freq/1E9) + '[GHz]')
 
 
 ########
@@ -577,7 +620,7 @@ omega = 2*np.pi*Plasma_Resonant_Frequency_Fit #angular frequency
 v = np.sqrt(2*e*energy/m_e) #electron velocity m/s
 n_g_meters_cubed = n_g*1E6 #n_g in [m^-3]
 nu_energy = n_g_meters_cubed*v*sigma_c_energy #energy differential collision cross section for momentum transfer
-T_e_sweep = np.linspace(0.1, 15, 1000)#0.1-15eV; 1000 steps
+T_e_sweep = np.linspace(0.1, 5.5, 1000)#0.1-15eV; 1000 steps
 
 #MAXWELLIAN
 f_maxwellian = np.zeros((len(T_e_sweep), len(energy)))
@@ -619,12 +662,12 @@ for i in range(0, len(T_e_sweep)):
     f_prime_druyvesteyn[i] = np.gradient(f_druyvesteyn[i])/np.gradient(energy) #derivative of EEDF using gradient method
 
 #CONDUCTIVITY
-integrand_maxwellian = np.zeros((len(T_e_sweep), len(energy)))
-sigma_e_maxwellian = np.zeros(len(T_e_sweep))
-integrand_bimaxwellian = np.zeros((len(T_e_sweep), len(energy)))
-sigma_e_bimaxwellian = np.zeros(len(T_e_sweep))
-integrand_druyvesteyn = np.zeros((len(T_e_sweep), len(energy)))
-sigma_e_druyvesteyn = np.zeros(len(T_e_sweep))
+integrand_maxwellian = np.zeros((len(T_e_sweep), len(energy)),dtype=np.complex_)
+sigma_e_maxwellian = np.zeros(len(T_e_sweep),dtype=np.complex_)
+integrand_bimaxwellian = np.zeros((len(T_e_sweep), len(energy)),dtype=np.complex_)
+sigma_e_bimaxwellian = np.zeros(len(T_e_sweep),dtype=np.complex_)
+integrand_druyvesteyn = np.zeros((len(T_e_sweep), len(energy)),dtype=np.complex_)
+sigma_e_druyvesteyn = np.zeros(len(T_e_sweep),dtype=np.complex_)
 nu_eff_maxwellian = np.zeros(len(T_e_sweep))
 omega_eff_maxwellian = np.zeros(len(T_e_sweep))
 nu_eff_bimaxwellian = np.zeros(len(T_e_sweep))
